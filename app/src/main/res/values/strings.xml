@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">GeoTask</string>
+    <string name="address_hint">Search places and addresses</string>
 </resources>

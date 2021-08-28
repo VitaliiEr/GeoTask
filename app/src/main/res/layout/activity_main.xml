@@ -11,6 +11,16 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
+        <AutoCompleteTextView
+            android:id="@+id/addressFrom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="40dp"
+            android:layout_margin="40dp"
+            android:padding="10dp"
+            android:background="@drawable/rounded_edittext"
+            android:hint="@string/address_hint"/>
+
     </com.yandex.mapkit.mapview.MapView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
