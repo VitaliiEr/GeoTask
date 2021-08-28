@@ -9,9 +9,9 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 
+import com.example.geotask.adapters.GeoAdapter;
 import com.yandex.mapkit.Animation;
 import com.yandex.mapkit.MapKitFactory;
 import com.yandex.mapkit.geometry.Point;
@@ -29,7 +29,6 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 
 public class MainActivity extends Activity {
     private final String MAPKIT_API_KEY = "";
@@ -40,6 +39,10 @@ public class MainActivity extends Activity {
     private MainActivity mainActivity;
     private MapView mapView;
     private AutoCompleteTextView addressFrom;
+
+    private Bitmap marker;
+    private ArrayList<GeoObject> geoObjects;
+    private GeoAdapter geoAdapter;
 
 
     @Override
@@ -53,6 +56,11 @@ public class MainActivity extends Activity {
         mainActivity = this;
         mapView = findViewById(R.id.mapView);
         addressFrom = findViewById(R.id.addressFrom);
+
+        marker = BitmapFactory.decodeResource(getResources(), R.drawable.ic_marker);
+        geoObjects = new ArrayList<>();
+        geoAdapter = new GeoAdapter(this, R.layout.item_geo, geoObjects);
+        addressFrom.setAdapter(geoAdapter);
 
         mapView.getMap().move(
                 new CameraPosition(TARGET_LOCATION, 11.0f, 0.0f, 0.0f),
@@ -73,8 +81,28 @@ public class MainActivity extends Activity {
 
             @Override
             public void afterTextChanged(Editable s) {
+                if (s.toString().length() < 3)
+                    return;
+
                 // Запрос в Геокодер
                 new GetUrlContentTask(mainActivity).execute(s.toString());
+            }
+        });
+
+        addressFrom.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                double longitude = geoObjects.get(position).getLongitude();
+                double latitude = geoObjects.get(position).getLatitude();
+
+                Point currentPoint = new Point(latitude, longitude);
+                mapView.getMap().move(
+                        new CameraPosition(currentPoint, 11.0f, 0.0f, 0.0f),
+                        new Animation(Animation.Type.SMOOTH, 0),
+                        null);
+
+                mapView.getMap().getMapObjects().clear();
+                mapView.getMap().getMapObjects().addPlacemark(currentPoint, ImageProvider.fromBitmap(marker));
             }
         });
     }
@@ -93,8 +121,7 @@ public class MainActivity extends Activity {
         MapKitFactory.getInstance().onStop();
     }
 
-
-    private class GetUrlContentTask extends AsyncTask<String, Integer, LinkedHashMap<String, String>> {
+    private class GetUrlContentTask extends AsyncTask<String, Integer,  ArrayList<GeoObject>> {
         private final MainActivity m_mainActivity;
 
         GetUrlContentTask(MainActivity mainActivity) {
@@ -102,7 +129,7 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        protected LinkedHashMap<String, String> doInBackground(String... str) {
+        protected ArrayList<GeoObject> doInBackground(String... str) {
             // Устанавливаем соединение для запроса в Геокодер
             String content = "";
             String strUrl = "https://geocode-maps.yandex.ru/1.x/?format=json&apikey=" + GEOCODER_API_KEY + "&geocode=" + str[0];
@@ -129,16 +156,22 @@ public class MainActivity extends Activity {
                     connection.disconnect();
             }
 
-            // Важен парядок выпадающего списка с адресами
-            LinkedHashMap<String, String> mapAddresses = new LinkedHashMap<>();
+            geoObjects.clear();
+            // Парсим JSON
             try {
                 JSONObject jObject = new JSONObject(content);
-                mapAddresses.putAll(parseAddresses(jObject));
+                JSONObject jResponse = jObject.getJSONObject("response");
+                JSONObject jGeoObjectCollection = jResponse.getJSONObject("GeoObjectCollection");
+                JSONArray jFeatureMembers = jGeoObjectCollection.getJSONArray("featureMember");
+                for (int i = 0; i < jFeatureMembers.length(); ++i) {
+                    GeoObject geoObject = new GeoObject(jFeatureMembers.getJSONObject(i));
+                    geoObjects.add(geoObject);
+                }
             } catch (JSONException e) {
                 e.printStackTrace();
             }
 
-            return mapAddresses;
+            return geoObjects;
         }
 
         @Override
@@ -147,38 +180,17 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        protected void onPostExecute(LinkedHashMap<String, String> result) {
+        protected void onPostExecute(ArrayList<GeoObject> result) {
             super.onPostExecute(result);
 
             if (m_mainActivity == null || m_mainActivity.isFinishing())
                 return;
 
-            ArrayList<String> arrAddresses = new ArrayList<>(result.keySet());
-            ArrayAdapter<String> adapter = new ArrayAdapter<>(m_mainActivity, android.R.layout.simple_dropdown_item_1line, arrAddresses);
-            addressFrom.setAdapter(adapter);
-            adapter.notifyDataSetChanged();
+            geoAdapter = new GeoAdapter(m_mainActivity, R.layout.item_geo, geoObjects);
+            addressFrom.setAdapter(geoAdapter);
+
+            geoAdapter.notifyDataSetChanged();
         }
 
-        // возвращаем LinkedHashMap с адресом и координатами
-        private LinkedHashMap<String, String> parseAddresses(JSONObject jObject) throws JSONException {
-            LinkedHashMap<String, String> mapAddress = new LinkedHashMap<>();
-            JSONObject jResponse = jObject.getJSONObject("response");
-            JSONObject jGeoObjectCollection = jResponse.getJSONObject("GeoObjectCollection");
-            JSONArray jFeatureMembers = jGeoObjectCollection.getJSONArray("featureMember");
-            for (int i = 0; i < jFeatureMembers.length(); ++i) {
-                JSONObject jFeatureMember = jFeatureMembers.getJSONObject(i);
-                JSONObject jGeoObject = jFeatureMember.getJSONObject("GeoObject");
-                JSONObject jMetaDataProperty = jGeoObject.getJSONObject("metaDataProperty");
-                JSONObject jGeocoderMetaData = jMetaDataProperty.getJSONObject("GeocoderMetaData");
-                String text = jGeocoderMetaData.getString("text");
-
-                JSONObject jPoint = jGeoObject.getJSONObject("Point");
-                String pos = jPoint.getString("pos");
-
-                mapAddress.put(text, pos);
-            }
-
-            return mapAddress;
-        }
     }
 }
